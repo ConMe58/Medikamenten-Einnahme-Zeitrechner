@@ -1,157 +1,182 @@
-function toMinutes(hhmm) {
-  const [h, m] = hhmm.split(':').map(Number);
+function timeToMinutes(value) {
+  const [h, m] = value.split(':').map(Number);
   return h * 60 + m;
 }
 
-function fromMinutes(total) {
-  total = ((Math.round(total) % 1440) + 1440) % 1440;
-  const h = String(Math.floor(total / 60)).padStart(2, '0');
-  const m = String(total % 60).padStart(2, '0');
+function minutesToTime(minutes) {
+  const normalized = ((minutes % 1440) + 1440) % 1440;
+  const h = Math.floor(normalized / 60).toString().padStart(2, '0');
+  const m = (normalized % 60).toString().padStart(2, '0');
   return `${h}:${m}`;
 }
 
-function addMinutes(hhmm, min) {
-  return fromMinutes(toMinutes(hhmm) + min);
+function addMinutes(time, minutes) {
+  return minutesToTime(timeToMinutes(time) + minutes);
 }
 
-function actualFirstMorningMedication(events, fallbackTime) {
-  const todayEvents = events
-    .filter(e => e.takenTime)
-    .sort((a, b) => toMinutes(a.takenTime) - toMinutes(b.takenTime));
-  return todayEvents[0]?.takenTime || fallbackTime;
+function sortByTime(items) {
+  return [...items].sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
 }
 
-function latestEventForMed(events, medId) {
-  return [...events]
-    .filter(e => e.medId === medId && e.takenTime)
-    .sort((a, b) => toMinutes(b.takenTime) - toMinutes(a.takenTime))[0] || null;
+function getFirstDoseTime(events, rules) {
+  if (!events.length) return rules.defaultDayStart;
+  return sortByTime(events)[0].time;
 }
 
-function toxapreventAllowedAt(candidateMin, otherPlannedMins, spacing) {
-  for (const other of otherPlannedMins) {
-    const diff = other - candidateMin;
-    if (diff >= 0 && diff < spacing.minimumBeforeOtherMedication) return false;
-    if (diff < 0 && Math.abs(diff) < spacing.minimumAfterOtherMedication) return false;
-  }
-  return true;
+function latestEventFor(events, medName) {
+  return sortByTime(events.filter(e => e.med === medName)).at(-1) || null;
 }
 
-function scoreToxaprevent(candidateMin, otherPlannedMins, spacing) {
-  let penalty = 0;
-  for (const other of otherPlannedMins) {
-    const diff = other - candidateMin;
-    if (diff >= 0 && diff < spacing.preferredBeforeOtherMedication) penalty += spacing.preferredBeforeOtherMedication - diff;
-    if (diff < 0 && Math.abs(diff) < spacing.preferredAfterOtherMedication) penalty += spacing.preferredAfterOtherMedication - Math.abs(diff);
-  }
-  return penalty;
-}
+function planMestinon(events, rules) {
+  const rule = rules.fixedMeds.find(m => m.name === 'Mestinon');
+  const taken = sortByTime(events.filter(e => e.med === 'Mestinon'));
+  const result = [];
 
-export function buildSchedule(config, events = []) {
-  const meds = config.medications;
-  const firstMorning = actualFirstMorningMedication(events, config.dayAnchor.plannedFirstMedicationTime);
-  const schedule = [];
+  if (!rule) return result;
 
-  for (const med of meds) {
-    if (med.type === 'relative_to_first_morning_med') {
-      schedule.push({
-        medId: med.id,
-        name: med.name,
-        earliest: addMinutes(firstMorning, med.windowAfterFirstMedicationMin.earliest),
-        ideal: addMinutes(firstMorning, med.idealAfterFirstMedicationMin),
-        latest: addMinutes(firstMorning, med.windowAfterFirstMedicationMin.latest),
-        status: 'planned'
-      });
-    }
-
-    if (med.type === 'series_after_first_morning_med') {
-      let earliestMin = toMinutes(firstMorning) + med.firstDoseWindowAfterFirstMedicationMin.earliest;
-      let latestMin = toMinutes(firstMorning) + med.firstDoseWindowAfterFirstMedicationMin.latest;
-      const latestDayMin = toMinutes(med.latestTime);
-      let index = 1;
-      while (earliestMin <= latestDayMin) {
-        schedule.push({
-          medId: med.id,
-          name: med.name,
-          doseNo: index,
-          earliest: fromMinutes(earliestMin),
-          ideal: fromMinutes(earliestMin),
-          latest: fromMinutes(Math.min(latestMin, latestDayMin)),
-          status: 'planned'
-        });
-        earliestMin += med.repeatIntervalMin.earliest;
-        latestMin += med.repeatIntervalMin.latest;
-        index++;
-      }
-    }
-
-    if (med.type === 'time_window') {
-      schedule.push({
-        medId: med.id,
-        name: med.name,
-        earliest: med.window.earliest,
-        ideal: med.window.ideal,
-        latest: med.window.latest,
-        status: 'planned'
-      });
-    }
-
-    if (med.type === 'repeat_after_taken' || med.type === 'repeat_after_taken_same_med_only') {
-      const last = latestEventForMed(events, med.id);
-      if (last) {
-        const next = addMinutes(last.takenTime, med.repeatIntervalMin);
-        schedule.push({
-          medId: med.id,
-          name: med.name,
-          earliest: next,
-          ideal: next,
-          latest: next,
-          status: 'next_after_confirmed_dose'
-        });
-      }
-    }
-
-    if (med.type === 'dynamic_day_slots') {
-      for (const slot of med.slots) {
-        schedule.push({
-          medId: med.id,
-          name: `${med.name} ${slot.label}`,
-          amount: slot.amount,
-          earliest: null,
-          ideal: null,
-          latest: null,
-          status: 'dynamic_slot_unplaced'
-        });
-      }
-    }
+  if (taken.length === 0) {
+    const first = getFirstDoseTime(events, rules);
+    result.push({ med: 'Mestinon', dose: 1, time: first, status: 'planned', reason: 'erste Dosis am Tagesstart orientiert' });
   }
 
-  // Toxaprevent: place as close as possible to preferred spacing, but enforce hard minimums; otherwise mark skipped.
-  const tox = meds.find(m => m.id === 'toxaprevent');
-  if (tox) {
-    const otherMins = schedule
-      .filter(s => s.medId !== 'toxaprevent' && s.ideal)
-      .map(s => toMinutes(s.ideal));
-    let best = null;
-    for (let t = toMinutes(firstMorning); t <= toMinutes('23:30'); t += 5) {
-      if (!toxapreventAllowedAt(t, otherMins, tox.spacingToOtherMedsMin)) continue;
-      const score = scoreToxaprevent(t, otherMins, tox.spacingToOtherMedsMin);
-      if (!best || score < best.score) best = { t, score };
-    }
-    const existing = schedule.findIndex(s => s.medId === 'toxaprevent');
-    const toxEntry = best
-      ? { medId: tox.id, name: tox.name, earliest: fromMinutes(best.t), ideal: fromMinutes(best.t), latest: fromMinutes(best.t), status: best.score === 0 ? 'preferred_spacing_met' : 'minimum_spacing_met' }
-      : { medId: tox.id, name: tox.name, earliest: null, ideal: null, latest: null, status: 'skipped_impossible_without_breaking_rules' };
-    if (existing >= 0) schedule[existing] = toxEntry;
-    else schedule.push(toxEntry);
+  const base = taken.length ? taken : result.map(x => ({ med: 'Mestinon', time: x.time }));
+  let lastTime = base[base.length - 1]?.time;
+  let doseNo = taken.length || 1;
+
+  while (doseNo < rule.dosesPerDay && lastTime) {
+    const earliest = timeToMinutes(lastTime) + rule.minGapMinutes;
+    const latest = timeToMinutes(lastTime) + rule.maxGapMinutes;
+    const proposed = earliest;
+    const latestAllowed = timeToMinutes(rule.lastDoseLatest);
+    const warnLate = doseNo + 1 === rule.dosesPerDay && proposed > latestAllowed;
+
+    result.push({
+      med: 'Mestinon',
+      dose: doseNo + 1,
+      time: minutesToTime(proposed),
+      window: `${minutesToTime(earliest)}–${minutesToTime(latest)}`,
+      status: warnLate ? 'violation' : 'planned',
+      reason: warnLate ? 'nach 18:30; Warnung, Plan wird fortgeführt' : '4:10–4:30 nach vorheriger Mestinon-Dosis'
+    });
+
+    lastTime = minutesToTime(proposed);
+    doseNo += 1;
   }
 
-  return schedule.sort((a, b) => {
-    if (!a.ideal) return 1;
-    if (!b.ideal) return -1;
-    return toMinutes(a.ideal) - toMinutes(b.ideal);
-  });
+  return result;
 }
 
-export function confirmDose(events, medId, takenTime) {
-  return [...events, { medId, takenTime, confirmedAt: new Date().toISOString() }];
+function planVenlafaxin(events, rules) {
+  const rule = rules.fixedMeds.find(m => m.name === 'Venlafaxin');
+  if (!rule) return [];
+  if (events.some(e => e.med === 'Venlafaxin')) return [];
+
+  const first = getFirstDoseTime(events, rules);
+  return [{
+    med: 'Venlafaxin',
+    time: addMinutes(first, rule.earliestAfterFirstMinutes),
+    window: `${addMinutes(first, rule.earliestAfterFirstMinutes)}–${addMinutes(first, rule.latestAfterFirstMinutes)}`,
+    status: 'planned',
+    reason: '30–45 Minuten nach erster dokumentierter Einnahme'
+  }];
 }
+
+function planAripiprazol(events, rules) {
+  const rule = rules.fixedMeds.find(m => m.name === 'Aripiprazol');
+  if (!rule || events.some(e => e.med === 'Aripiprazol')) return [];
+  return [{
+    med: 'Aripiprazol',
+    time: rule.target,
+    window: `${rule.earliest}–${rule.latest}`,
+    status: 'optimal',
+    reason: 'Ziel 14:30 innerhalb 13:00–15:00'
+  }];
+}
+
+function planAnchorMeds(events, rules) {
+  const result = [];
+  const special = new Set(['Mestinon', 'Venlafaxin', 'Aripiprazol']);
+
+  for (const med of rules.fixedMeds) {
+    if (special.has(med.name)) continue;
+    const alreadyTaken = events.some(e => e.med === med.name && (!med.doseLabel || e.doseLabel === med.doseLabel));
+    if (alreadyTaken) continue;
+    const anchor = rules.anchors[med.block];
+    if (!anchor) continue;
+    result.push({
+      med: med.name,
+      doseLabel: med.doseLabel || null,
+      time: anchor,
+      status: 'planned',
+      reason: `Ankerzeit ${med.block}`
+    });
+  }
+
+  return result;
+}
+
+function planAsNeeded(events, rules) {
+  const result = [];
+  for (const med of rules.asNeededMeds || []) {
+    const latest = latestEventFor(events, med.name);
+    if (!latest) continue;
+    result.push({
+      med: med.name,
+      time: addMinutes(latest.time, med.minGapMinutes),
+      status: 'available_from',
+      reason: `frühestens ${med.minGapMinutes / 60} Stunden nach letzter Einnahme`
+    });
+  }
+  return result;
+}
+
+function planToxaprevent(events, rules, currentPlan) {
+  const rule = (rules.optionalMeds || []).find(m => m.name === 'Toxaprevent');
+  if (!rule) return [];
+
+  const alreadyTaken = events.some(e => e.med === 'Toxaprevent');
+  if (alreadyTaken) return [];
+
+  const occupied = sortByTime([...events.map(e => ({ med: e.med, time: e.time })), ...currentPlan]);
+  const candidates = [];
+
+  for (let minute = 6 * 60; minute <= 23 * 60; minute += 5) {
+    const ok = occupied.every(item => {
+      const delta = minute - timeToMinutes(item.time);
+      return delta >= rule.minAfterOtherMedsMinutes || delta <= -rule.minBeforeOtherMedsMinutes;
+    });
+    if (ok) candidates.push(minute);
+  }
+
+  if (!candidates.length) {
+    return [{ med: 'Toxaprevent', time: null, status: 'skipped', reason: 'kein gültiges Zeitfenster; Toxaprevent ausgelassen' }];
+  }
+
+  const preferred = candidates.find(minute => occupied.every(item => {
+    const delta = minute - timeToMinutes(item.time);
+    return delta >= rule.preferredAfterOtherMedsMinutes || delta <= -rule.preferredBeforeOtherMedsMinutes;
+  }));
+
+  const chosen = preferred ?? candidates[0];
+  return [{
+    med: 'Toxaprevent',
+    time: minutesToTime(chosen),
+    status: preferred ? 'optimal' : 'acceptable',
+    reason: preferred ? 'bevorzugte Abstände eingehalten' : 'nur Mindestabstände eingehalten'
+  }];
+}
+
+export function calculatePlan(events, rules) {
+  const base = [
+    ...planAnchorMeds(events, rules),
+    ...planVenlafaxin(events, rules),
+    ...planAripiprazol(events, rules),
+    ...planMestinon(events, rules),
+    ...planAsNeeded(events, rules)
+  ];
+
+  const tox = planToxaprevent(events, rules, base);
+  return sortByTime([...base, ...tox].filter(item => item.time)).concat(tox.filter(item => !item.time));
+}
+
+export { timeToMinutes, minutesToTime, addMinutes };

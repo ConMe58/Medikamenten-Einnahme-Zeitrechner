@@ -4,103 +4,34 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Medikamenten-Scheduler</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; line-height: 1.4; }
-    button, input, select { font: inherit; padding: 8px; margin: 4px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 16px; }
-    th, td { border-bottom: 1px solid #ddd; padding: 8px; text-align: left; }
-    .warn { font-weight: 700; }
-    .muted { opacity: .7; }
-  </style>
+  <link rel="stylesheet" href="./styles/main.css" />
 </head>
 <body>
-  <h1>Medikamenten-Scheduler</h1>
-  <p class="muted">Lokale Rechenhilfe. Keine medizinische Empfehlung.</p>
+  <main>
+    <h1>Medikamenten-Scheduler</h1>
+    <p class="warning">Rechenhilfe. Keine medizinische Empfehlung. Regeln nicht erraten.</p>
 
-  <section>
-    <label>Medikament</label>
-    <select id="med"></select>
-    <label>genommen um</label>
-    <input id="time" type="time" />
-    <button id="confirm">Einnahme bestätigen</button>
-    <button id="clear">Heute zurücksetzen</button>
-  </section>
+    <section>
+      <h2>Einnahme dokumentieren</h2>
+      <div class="controls">
+        <select id="medSelect"></select>
+        <input id="timeInput" type="time" />
+        <button id="addBtn">Einnahme speichern</button>
+        <button id="clearBtn" class="secondary">Tag löschen</button>
+      </div>
+    </section>
 
-  <h2>Nächste Planung</h2>
-  <table>
-    <thead><tr><th>Zeitfenster</th><th>Medikament</th><th>Status</th></tr></thead>
-    <tbody id="schedule"></tbody>
-  </table>
+    <section>
+      <h2>Dokumentierte Einnahmen</h2>
+      <div id="events"></div>
+    </section>
 
-  <h2>Bestätigte Einnahmen heute</h2>
-  <table>
-    <thead><tr><th>Zeit</th><th>Medikament</th></tr></thead>
-    <tbody id="events"></tbody>
-  </table>
+    <section>
+      <h2>Neu berechneter Restplan</h2>
+      <div id="plan"></div>
+    </section>
+  </main>
 
-  <script type="module">
-    import { buildSchedule, confirmDose } from './src/scheduler.js';
-
-    const config = await fetch('./data/meds.json').then(r => r.json());
-    const key = 'med_scheduler_events_v1';
-    let events = JSON.parse(localStorage.getItem(key) || '[]');
-
-    const medSelect = document.querySelector('#med');
-    const timeInput = document.querySelector('#time');
-    const scheduleBody = document.querySelector('#schedule');
-    const eventsBody = document.querySelector('#events');
-
-    function nowHHMM() {
-      const d = new Date();
-      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    }
-
-    timeInput.value = nowHHMM();
-
-    for (const med of config.medications) {
-      const opt = document.createElement('option');
-      opt.value = med.id;
-      opt.textContent = med.name;
-      medSelect.appendChild(opt);
-    }
-
-    function save() { localStorage.setItem(key, JSON.stringify(events)); }
-
-    function render() {
-      const schedule = buildSchedule(config, events);
-      scheduleBody.innerHTML = '';
-      for (const item of schedule) {
-        const tr = document.createElement('tr');
-        const windowText = item.ideal
-          ? `${item.earliest ?? item.ideal}${item.latest && item.latest !== item.earliest ? '–' + item.latest : ''}`
-          : 'nicht platziert';
-        tr.innerHTML = `<td>${windowText}</td><td>${item.name}${item.amount ? ' · ' + item.amount : ''}</td><td>${item.status}</td>`;
-        if (item.status.includes('skipped') || item.status.includes('minimum')) tr.className = 'warn';
-        scheduleBody.appendChild(tr);
-      }
-
-      eventsBody.innerHTML = '';
-      for (const ev of [...events].sort((a,b) => a.takenTime.localeCompare(b.takenTime))) {
-        const med = config.medications.find(m => m.id === ev.medId);
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${ev.takenTime}</td><td>${med?.name || ev.medId}</td>`;
-        eventsBody.appendChild(tr);
-      }
-    }
-
-    document.querySelector('#confirm').addEventListener('click', () => {
-      events = confirmDose(events, medSelect.value, timeInput.value || nowHHMM());
-      save();
-      render();
-    });
-
-    document.querySelector('#clear').addEventListener('click', () => {
-      events = [];
-      save();
-      render();
-    });
-
-    render();
-  </script>
+  <script type="module" src="./src/app.js"></script>
 </body>
 </html>
