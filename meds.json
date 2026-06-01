@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "timezone": "Europe/Berlin",
+  "dayAnchor": {
+    "plannedFirstMedicationTime": "08:00",
+    "description": "Erste Medikamenteneinnahme morgens, egal welches Medikament. Venlafaxin und Mestinon beziehen sich auf diesen Zeitpunkt."
+  },
+  "medications": [
+    {
+      "id": "venlafaxin",
+      "name": "Venlafaxin",
+      "type": "relative_to_first_morning_med",
+      "doseLabel": "offen",
+      "windowAfterFirstMedicationMin": { "earliest": 30, "latest": 45 },
+      "idealAfterFirstMedicationMin": 30,
+      "hardRule": true
+    },
+    {
+      "id": "mestinon",
+      "name": "Mestinon",
+      "type": "series_after_first_morning_med",
+      "doseLabel": "offen",
+      "firstDoseWindowAfterFirstMedicationMin": { "earliest": 30, "latest": 45 },
+      "repeatIntervalMin": { "earliest": 250, "latest": 270 },
+      "latestTime": "18:30",
+      "hardRule": true
+    },
+    {
+      "id": "toxaprevent",
+      "name": "Toxaprevent",
+      "type": "spacing_sensitive_optional",
+      "doseLabel": "offen",
+      "spacingToOtherMedsMin": {
+        "preferredAfterOtherMedication": 120,
+        "preferredBeforeOtherMedication": 90,
+        "minimumAfterOtherMedication": 90,
+        "minimumBeforeOtherMedication": 60
+      },
+      "ifImpossible": "skip_this_dose",
+      "hardRule": true
+    },
+    {
+      "id": "aripiprazol",
+      "name": "Aripiprazol",
+      "type": "time_window",
+      "doseLabel": "offen",
+      "window": { "earliest": "13:00", "ideal": "14:30", "latest": "15:00" },
+      "canShiftWithinWindow": true,
+      "hardRule": true
+    },
+    {
+      "id": "novaminsulfon",
+      "name": "Novaminsulfon",
+      "type": "repeat_after_taken",
+      "doseLabel": "offen",
+      "repeatIntervalMin": 360,
+      "description": "Wenn verspätet genommen, beginnt der 6-Stunden-Abstand ab tatsächlicher Einnahme neu.",
+      "hardRule": true
+    },
+    {
+      "id": "tavor_expedit",
+      "name": "Tavor Expedit",
+      "type": "repeat_after_taken_same_med_only",
+      "doseLabel": "offen",
+      "repeatIntervalMin": 360,
+      "spacingAppliesOnlyToSameMedication": true,
+      "hardRule": true
+    },
+    {
+      "id": "allergoval",
+      "name": "Allergoval",
+      "type": "dynamic_day_slots",
+      "doseLabel": "morgens 2 / mittags 2 / abends 2 / nachts 1",
+      "slots": [
+        { "slotId": "morning", "label": "morgens", "amount": 2 },
+        { "slotId": "midday", "label": "mittags", "amount": 2 },
+        { "slotId": "evening", "label": "abends", "amount": 2 },
+        { "slotId": "night", "label": "nachts", "amount": 1 }
+      ],
+      "description": "Dynamisch nach Tagesplan, nicht starr nach Uhrzeit."
+    }
+  ],
+  "unknownOrNotYetConfigured": [
+    "Alle weiteren Medikamente aus dem Foto sind absichtlich noch nicht als Regeln eingetragen. Bitte einzeln mit Dosis, geplantem Slot, Mindestabständen und fixen Zeitfenstern ergänzen."
+  ]
+}
